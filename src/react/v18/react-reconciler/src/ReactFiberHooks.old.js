@@ -904,7 +904,9 @@ function updateReducer<S, I, A>(
   initialArg: I,
   init?: I => S,
 ): [S, Dispatch<A>] {
+  // 按照workInProgressHook.next获取当前的hook对象
   const hook = updateWorkInProgressHook();
+  // hook的队列
   const queue = hook.queue;
 
   if (queue === null) {
@@ -914,19 +916,23 @@ function updateReducer<S, I, A>(
   }
 
   queue.lastRenderedReducer = reducer;
-
+  
+  // current fiber树上对应的hook对象
   const current: Hook = (currentHook: any);
 
   // The last rebase update that is NOT part of the base state.
   let baseQueue = current.baseQueue;
 
+  // queue.pending中保存的是尚未处理的update单向循环链表
   // The last pending update that hasn't been processed yet.
+  // 逻辑： 主要是将queue.pending中update对象链表保存在currentHook.baseQueue
   const pendingQueue = queue.pending;
   if (pendingQueue !== null) {
     // We have new updates that haven't been processed yet.
     // We'll add them to the base queue.
     if (baseQueue !== null) {
       // Merge the pending queue and the base queue.
+      // 将queue.pending中的update链表合并至currentHook.baseQueue中
       const baseFirst = baseQueue.next;
       const pendingFirst = pendingQueue.next;
       baseQueue.next = pendingFirst;
@@ -942,16 +948,20 @@ function updateReducer<S, I, A>(
         );
       }
     }
+    // currentHook.baseQueue为null时的情况
     current.baseQueue = baseQueue = pendingQueue;
     queue.pending = null;
   }
 
+  // 判断合并后的update链表是否存在
+  // 存在的话，执行update中action，得到newState
   if (baseQueue !== null) {
     // We have a queue to process.
     const first = baseQueue.next;
     let newState = current.baseState;
 
     let newBaseState = null;
+    // 处理完满足要求的update之后剩余的update对象组成的链表
     let newBaseQueueFirst = null;
     let newBaseQueueLast = null;
     let update = first;
@@ -959,17 +969,25 @@ function updateReducer<S, I, A>(
       // An extra OffscreenLane bit is added to updates that were made to
       // a hidden tree, so that we can distinguish them from updates that were
       // already there when the tree was hidden.
+      // 去除OffscreenLane bit，这里只处理fiber隐藏时就已经存在的update
       const updateLane = removeLanes(update.lane, OffscreenLane);
+      // 判断update Lane中是否存在OffscreenLane
       const isHiddenUpdate = updateLane !== update.lane;
-
+      /**
+       * 检查此更新是否在树被隐藏时进行，如果是这样，
+       */
       // Check if this update was made while the tree was hidden. If so, then
       // it's not a "base" update and we should disregard the extra base lanes
       // that were added to renderLanes when we entered the Offscreen tree.
+      // Offscreenlane具体情况不明
+      // isSubsetOfLanes判断update.lane是否和renderLanes相同，相同则说明此update的是属于本次更新的范围内
+      // update链表中有不同lane的update对象，每个更新只处理属于当前正在更新的lane（renderLanes）的update
+      // 这里还要注意：对于NoLane是任何lane的子级，所以对于NoLane的update来说，永远都会去处理
       const shouldSkipUpdate = isHiddenUpdate
         ? !isSubsetOfLanes(getWorkInProgressRootRenderLanes(), updateLane)
         : !isSubsetOfLanes(renderLanes, updateLane);
 
-      if (shouldSkipUpdate) {
+      if (shouldSkipUpdate) { // update不属于本次更新的lane,所以需要跳过
         // Priority is insufficient. Skip this update. If this is the first
         // skipped update, the previous update/state is the new base
         // update/state.
@@ -995,8 +1013,20 @@ function updateReducer<S, I, A>(
         );
         markSkippedUpdateLanes(updateLane);
       } else {
+        // update属于本次更新lane，可以处理此update
         // This update does have sufficient priority.
-
+        // newBaseQueueLast不为null，说明处理这个update之前存在lane不满足条件导致update跳过处理的情况
+        // 对于这些跳过的update，以后再次处理的时候为，为了保证得到的newValue稳定，需要依次处理排在这个udpate后面的所有update对象
+        /**
+         * 例子：比如
+         *  存在一个count(state) = 0
+         *  (1)号update: lane = syncLane; action: 1 ---> 2
+         *  (2)号update: lane = transitionLane; action: 1 --- > 3,
+         *  (3)号update: lane = syncLane; action: 1 --- > 4
+         *  分别有三个update，第一更新 renderLanes = syncLane, 更新之后count = 4,
+         *  由于存在跳过的update(2),所以排在(2)号update后面的(3)号update，修改lane = Nolane之后添加至新的update链表中，此时currentHook.baseQueue链表中存在(2)号和（3）号update(lane = Nolane)
+         *  第二次更新：renderlanes = transitionLane, 这里hook.baseQueue有(2)号和(3)号update（lane === Nolane），更新之后count = 4
+         */
         if (newBaseQueueLast !== null) {
           const clone: Update<S, A> = {
             // This update is going to be committed so we never want uncommit
@@ -1012,6 +1042,7 @@ function updateReducer<S, I, A>(
         }
 
         // Process this update.
+        // 处理update，得到newState
         if (update.hasEagerState) {
           // If this update is a state update (not a reducer) and was processed eagerly,
           // we can use the eagerly computed state
@@ -1648,18 +1679,21 @@ function forceStoreRerender(fiber) {
 function mountState<S>(
   initialState: (() => S) | S,
 ): [S, Dispatch<BasicStateAction<S>>] {
+  // 新建一个hook对象，把hook对象挂载值fiber.memoizedState(链表结构)中
   const hook = mountWorkInProgressHook();
+  // 如果传入的是函数，这里执行函数，得到初始值
   if (typeof initialState === 'function') {
     // $FlowFixMe: Flow doesn't like mixed types
     initialState = initialState();
   }
+  // 将初始值赋值给hook中的属性(memoizedState和baseState)，保存
   hook.memoizedState = hook.baseState = initialState;
   const queue: UpdateQueue<S, BasicStateAction<S>> = {
-    pending: null,
-    lanes: NoLanes,
-    dispatch: null,
-    lastRenderedReducer: basicStateReducer,
-    lastRenderedState: (initialState: any),
+    pending: null,    // pending(单向循环update对象链表)
+    lanes: NoLanes,   // 表示的是更新的优先级
+    dispatch: null,   // 后面会赋值为dispatchSetState函数,也就是setState函数
+    lastRenderedReducer: basicStateReducer, // 用于执行action得到newValue
+    lastRenderedState: (initialState: any), // 一次update更新后的newValue
   };
   hook.queue = queue;
   const dispatch: Dispatch<
