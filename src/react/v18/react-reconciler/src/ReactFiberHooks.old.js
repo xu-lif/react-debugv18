@@ -1727,10 +1727,19 @@ function pushEffect(tag, create, destroy, deps: Array<mixed> | void | null) {
     // Circular
     next: (null: any),
   };
+  // 取出currentFiber.updateQueue（单向循环链表）
   let componentUpdateQueue: null | FunctionComponentUpdateQueue = (currentlyRenderingFiber.updateQueue: any);
   if (componentUpdateQueue === null) {
+    // 创建updateQueue对象
+    /**
+     * updateQueue = {
+     *  lastEffect: ---> effect对象
+     *  stores: // 用处不明
+     * }
+     */
     componentUpdateQueue = createFunctionComponentUpdateQueue();
     currentlyRenderingFiber.updateQueue = (componentUpdateQueue: any);
+    // 将effect对象赋值给updateQueue.lastEffect链表中
     componentUpdateQueue.lastEffect = effect.next = effect;
   } else {
     const lastEffect = componentUpdateQueue.lastEffect;
@@ -1843,9 +1852,12 @@ function mountEffectImpl(
   create,
   deps: Array<mixed> | void | null,
 ): void {
+  // 创建hook并挂载至fiber.memoizedState（hook单向链表）属性上
   const hook = mountWorkInProgressHook();
   const nextDeps = deps === undefined ? null : deps;
+  // 将标记PassiveEffect | PassiveStaticEffect加入只fiber.flags属性上
   currentlyRenderingFiber.flags |= fiberFlags;
+  // HookHasEffect标记当前effect对象需要在更新完成之后执行
   hook.memoizedState = pushEffect(
     HookHasEffect | hookFlags,
     create,
@@ -1860,21 +1872,28 @@ function updateEffectImpl(
   create,
   deps: Array<mixed> | void | null,
 ): void {
+  // 从workInprogressHooks.next得到当前的hook
   const hook = updateWorkInProgressHook();
+  // 新的依赖项数组
   const nextDeps = deps === undefined ? null : deps;
   let destroy = undefined;
 
   if (currentHook !== null) {
     const prevEffect = currentHook.memoizedState;
+    // destroy是在create执行之后返回的函数
+    // destroy执行时机：commit阶段同步执行
     destroy = prevEffect.destroy;
     if (nextDeps !== null) {
       const prevDeps = prevEffect.deps;
+      // 判断新旧deps内的元素是否有变化
       if (areHookInputsEqual(nextDeps, prevDeps)) {
+        // 如果新旧deps，没有变化的话。这里没有加入HookHasEffect tag
         hook.memoizedState = pushEffect(hookFlags, create, destroy, nextDeps);
         return;
       }
     }
   }
+  // 如果新旧deps不相等，这里加入了HookHasEffect tag
 
   currentlyRenderingFiber.flags |= fiberFlags;
 
@@ -2078,17 +2097,22 @@ function mountCallback<T>(callback: T, deps: Array<mixed> | void | null): T {
 }
 
 function updateCallback<T>(callback: T, deps: Array<mixed> | void | null): T {
+  // 取出hook
   const hook = updateWorkInProgressHook();
+  // 新的依赖项数组
   const nextDeps = deps === undefined ? null : deps;
+  // 旧的状态
   const prevState = hook.memoizedState;
   if (prevState !== null) {
     if (nextDeps !== null) {
       const prevDeps: Array<mixed> | null = prevState[1];
       if (areHookInputsEqual(nextDeps, prevDeps)) {
+        // 如果依赖项数组相等，即没有发生变化,直接返回旧的callback
         return prevState[0];
       }
     }
   }
+  // 如果依赖项数组不想等，这里修改hook属性为新的callback，并返回新的callback
   hook.memoizedState = [callback, nextDeps];
   return callback;
 }
@@ -2199,12 +2223,17 @@ function updateDeferredValueImpl<T>(hook: Hook, prevValue: T, value: T): T {
 function startTransition(setPending, callback, options) {
   const previousPriority = getCurrentUpdatePriority();
   setCurrentUpdatePriority(
+    // 这里选择previousPriority和ContinuousEventPriorit优先级高的那个优先级
+    // 目的：保证setPending(true)和上一个react内部触发的更新一起更新
+    // (例子：如果在react合成事件或者useEffect或生命周期中先出发了一个更新，然后紧接着使用startTransition触发了更新，然后setPending(true)的更新优先级为[上面先出发的更新的优先级]和[ContinuousEventPriority]两者取高的那个
+    // 但是如果是在原生事件中触发更新，previousPriority = 0, 然后setIsPending就为ContinuousEventPriorit)
     higherEventPriority(previousPriority, ContinuousEventPriority),
   );
-
+  // 这里触发了isPending state的更新，优先级由上面的的表达式得到
   setPending(true);
 
   const prevTransition = ReactCurrentBatchConfig.transition;
+  // 标记接下来的更新的优先级都是transitionLane
   ReactCurrentBatchConfig.transition = {};
   const currentTransition = ReactCurrentBatchConfig.transition;
 
@@ -2220,6 +2249,8 @@ function startTransition(setPending, callback, options) {
   }
 
   try {
+    // 这里更新isPending以及callback中触发的更新的优先级都是transitionLane
+    // 也就是在callback中的更新开始执行更新的时候isPending的状态才会变为false
     setPending(false);
     callback();
   } finally {
@@ -2247,10 +2278,13 @@ function mountTransition(): [
   boolean,
   (callback: () => void, options?: StartTransitionOptions) => void,
 ] {
+  // 创建了一个boolean状态，表示到transitionLane任务调度完成之前的这段时间
   const [isPending, setPending] = mountState(false);
   // The `start` method never changes.
+  // 用来触发状态的变化以及为callback的执行设置transitionLane优先级
   const start = startTransition.bind(null, setPending);
   const hook = mountWorkInProgressHook();
+  // 保存startTransition,固定函数地址
   hook.memoizedState = start;
   return [isPending, start];
 }
@@ -2259,6 +2293,7 @@ function updateTransition(): [
   boolean,
   (callback: () => void, options?: StartTransitionOptions) => void,
 ] {
+  // 获取effect的值
   const [isPending] = updateState(false);
   const hook = updateWorkInProgressHook();
   const start = hook.memoizedState;

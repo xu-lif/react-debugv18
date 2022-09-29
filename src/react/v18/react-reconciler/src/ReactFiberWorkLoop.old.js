@@ -2318,6 +2318,7 @@ function commitRootImpl(
     throw new Error('Should not already be working.');
   }
 
+  // 调和阶段生成的fiber数 ---> workInprogressRootFiber
   const finishedWork = root.finishedWork;
   const lanes = root.finishedLanes;
 
@@ -2452,6 +2453,7 @@ function commitRootImpl(
     // The first phase a "before mutation" phase. We use this phase to read the
     // state of the host tree right before we mutate it. This is where
     // getSnapshotBeforeUpdate is called.
+    // 在改变dom树之前
     const shouldFireAfterActiveInstanceBlur = commitBeforeMutationEffects(
       root,
       finishedWork,
@@ -2470,6 +2472,7 @@ function commitRootImpl(
     }
 
     // The next phase is the mutation phase, where we mutate the host tree.
+    // 改变dom树之前
     commitMutationEffects(root, finishedWork, lanes);
 
     if (enableCreateEventHandleAPI) {
@@ -2496,6 +2499,7 @@ function commitRootImpl(
     if (enableSchedulingProfiler) {
       markLayoutEffectsStarted(lanes);
     }
+    // dom树改变之后，但是整个dom树的改变还未提交浏览器绘制，在这里执行一些layOutEffect等操纵以及类组件的一些生命周期函数等
     commitLayoutEffects(finishedWork, root, lanes);
     if (__DEV__) {
       if (enableDebugTracing) {
@@ -3078,7 +3082,7 @@ function pingSuspendedRoot(
     isSubsetOfLanes(workInProgressRootRenderLanes, pingedLanes)
   ) {
     // Received a ping at the same priority level at which we're currently
-    // rendering. We might want to restart this render. This should mirror
+    // rendering. We might want to restareffect.create()t this render. This should mirror
     // the logic of whether or not a root suspends once it completes.
     // TODO: If we're rendering sync either due to Sync, Batched or expired,
     // we should probably never restart.

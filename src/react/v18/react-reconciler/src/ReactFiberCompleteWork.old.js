@@ -314,7 +314,7 @@ if (supportsMutation) {
     let node = workInProgress.child;
     while (node !== null) {
       // eslint-disable-next-line no-labels
-      branches: if (node.tag === HostComponent) {
+      if (node.tag === HostComponent) {
         let instance = node.stateNode;
         if (needsVisibilityToggle && isHidden) {
           // This child is inside a timed out tree. Hide it.
@@ -379,7 +379,7 @@ if (supportsMutation) {
     let node = workInProgress.child;
     while (node !== null) {
       // eslint-disable-next-line no-labels
-      branches: if (node.tag === HostComponent) {
+      if (node.tag === HostComponent) {
         let instance = node.stateNode;
         if (needsVisibilityToggle && isHidden) {
           // This child is inside a timed out tree. Hide it.
@@ -864,6 +864,7 @@ function completeWork(
       bubbleProperties(workInProgress);
       return null;
     case ClassComponent: {
+      console.log('completeWorks')
       const Component = workInProgress.type;
       if (isLegacyContextProvider(Component)) {
         popLegacyContext(workInProgress);
